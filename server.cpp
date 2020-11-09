@@ -9,20 +9,25 @@
 // client in packets. The code is almost English so I feel no need 
 // to make any additional comments :)
 int main(int argc, char *argv[]) {
-  if (argc != 3) {
-    cout << "Usage: server <port> <filename>" << endl;
+  if (argc != 5) {
+    cout << "Usage: server <receivingPort> <sendingPort> <filename>" << endl;
     return -1; 
   }
 
-  Server *server = new Server(argv[1]);
+  Server *server = new Server(argv[1], argv[3], argv[2]);
   ofstream arrival("arrival.log", std::ios::out | std::ios::trunc);
 
-  if (server->initConnection() == -1) {
-    cout << "Error in binding negotiation socket.\n";
+  if (server->initReceivingSocket() == -1) {
+    cout << "Error in binding receiving socket.\n";
     exit(-1);
   }
 
-  ofstream out_file(argv[2], std::ios::out | std::ios::trunc);
+  if (server->initSendingSocket() == -1) {
+    cout << "Error in binding sending socket.\n";
+    exit(-1);
+  }
+
+  ofstream out_file(argv[4], std::ios::out | std::ios::trunc);
 
   if (!out_file.is_open()) {
     cout << "Failed to open data file\n";
@@ -38,7 +43,7 @@ int main(int argc, char *argv[]) {
     arrival << server->extractPacketSequenceNum() << "\n";
 
     if (server->packetCorrupt()) {
-      if (server->acknowledge() < 0) {
+      if (server->resendAck() < 0) {
         cout << "Error sending ack packet.\n";
         exit(-1);
       }
@@ -88,9 +93,11 @@ int main(int argc, char *argv[]) {
 // parsed locally. This was done for better readability of the
 // main function. The server length is also calculated here and
 // stored as a member variable for use later in the program.
-Server::Server(const char *_negotiationPort) {
-  negotiationPort = atoi(_negotiationPort);
-  slen = sizeof(server);
+Server::Server(const char *_hostName, const char *_receivingPort, const char * _sendingPort) {
+  receivingPort = atoi(_receivingPort);
+  sendingPort = atoi(_sendingPort);
+  hostName = gethostbyname(_hostName);
+  slen = sizeof(sendingServer);
 }
 
 
@@ -110,17 +117,37 @@ Server::~Server() {
 // Initializing UDP connection: the udp server is a member of the class
 // so this initiializer function instantiates the requested connection
 // and makes the server available to members of the class.
-int Server::initConnection() {
-  if ((gbnSocket=socket(AF_INET, SOCK_DGRAM, 0))==-1)
+int Server::initReceivingSocket() {
+  if ((receivingSocket=socket(AF_INET, SOCK_DGRAM, 0))==-1)
     cout << "Failed creating data socket.\n";
 
   // Initializing UDP Data socket
-  memset((char *) &server, 0, sizeof(server));
-  server.sin_family = AF_INET;
-  server.sin_addr.s_addr = htonl(INADDR_ANY);
-  server.sin_port = htons(negotiationPort);
+  memset((char *) &receivingServer, 0, sizeof(receivingServer));
+  receivingServer.sin_family = AF_INET;
+  receivingServer.sin_addr.s_addr = htonl(INADDR_ANY);
+  receivingServer.sin_port = htons(receivingPort);
 
-  return bind(gbnSocket, (struct sockaddr *)&server, sizeof(server));
+  return bind(receivingSocket, (struct sockaddr *)&receivingServer, sizeof(receivingServer));
+}
+
+int Server::initSendingSocket() {
+  memset((char *) &sendingServer, 0, sizeof(sendingServer));
+  bcopy((char *)hostName->h_addr,
+  (char *)&sendingServer.sin_addr.s_addr,
+  hostName->h_length);
+
+  sendingServer.sin_port = htons(sendingPort);
+  sendingSocket = socket(AF_INET, SOCK_DGRAM, 0);
+
+  // Here a timeout is set for receiving packets. 40 ms specifically.
+  // When the timeout is reached the application timeout is checked
+  // so that packets can be resent if necessary.
+  struct timeval ackTimeout;
+  ackTimeout.tv_sec = 0;
+  ackTimeout.tv_usec = 40000;
+  setsockopt(sendingSocket, SOL_SOCKET, SO_RCVTIMEO, &ackTimeout, sizeof ackTimeout);
+
+  return sendingSocket;
 }
 
 
@@ -136,11 +163,15 @@ int Server::recvPacket() {
   }
 
   dataPacket = new packet(1, 0, 30, data);
-  if ((recvfrom(gbnSocket, chunk, 64, 0, (struct sockaddr*) &server, &slen)) < 0) {
+  if ((recvfrom(receivingSocket, chunk, 64, 0, (struct sockaddr*) &receivingServer, &slen)) < 0) {
     return -1;
   }
 
   dataPacket->deserialize(chunk);
+
+  cout << "\n\n\n";
+  dataPacket->printContents();
+  cout << "\n\n\n" << endl;
 
   return 0;
 }
@@ -182,7 +213,7 @@ int Server::endTransmission() {
   ackPacket = new packet(2, ns.value, 0, NULL);
   ackPacket->serialize(chunk);
 
-  if ((sendto(gbnSocket, chunk, 64, 0, (struct sockaddr*) &server, slen)) < 0) {
+  if ((sendto(sendingSocket, chunk, 64, 0, (struct sockaddr*) &sendingServer, slen)) < 0) {
     return -1;
   }
 
@@ -203,7 +234,19 @@ int Server::acknowledge() {
   ackPacket = new packet(0, ns.value, 0, NULL);
   ackPacket->serialize(chunk);
 
-  if ((sendto(gbnSocket, chunk, 64, 0, (struct sockaddr*) &server, slen)) < 0) {
+  if ((sendto(sendingSocket, chunk, 64, 0, (struct sockaddr*) &sendingServer, slen)) < 0) {
+    return -1;
+  }
+
+  return 0;
+}
+
+int Server::resendAck() {
+  if (ackPacket == nullptr) {
+    return -1;
+  }
+
+  if ((sendto(sendingSocket, chunk, 64, 0, (struct sockaddr*) &sendingServer, slen)) < 0) {
     return -1;
   }
 
@@ -214,6 +257,10 @@ int Server::acknowledge() {
 // Increment sequence: the sequence counter for server is incremented by one
 void Server::incrementSequence() {
   ns++;
+}
+
+void Server::decrementSequence() {
+  ns--;
 }
 
 // Receiveing: a control function that will keep the while loop running
@@ -231,7 +278,7 @@ bool Server::receivedPacketIsEot() {
 
 // Packet corrput: if the sequence number is out of bounds the packet is corrupt.
 bool Server::packetCorrupt() {
-  dataPacket->printContents();
+  // dataPacket->printContents();
   return dataPacket->getSeqNum() != ns.value;
 }
 

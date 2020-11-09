@@ -33,10 +33,10 @@ class Server{
 private:
 
   SequenceCounter ns;
-  struct sockaddr_in server;
+  struct sockaddr_in sendingServer, receivingServer;
   struct hostent *hostName;
   const char *fileName;
-  int negotiationPort, gbnSocket;
+  int receivingPort, sendingPort, receivingSocket, sendingSocket;
   packet * ackPacket, * dataPacket;
   socklen_t slen;
   bool done = false;
@@ -46,16 +46,19 @@ private:
 
 public:
 
-	Server(const char *_negotiationPort);
+	Server(const char *_hostName, const char *_receivingPort, const char * _sendingPort);
   ~Server();
-  int initConnection();
+  int initSendingSocket();
+  int initReceivingSocket();
   int recvPacket();
   void incrementSequence();
+  void decrementSequence();
   char * extractPacketData();
   int extractPacketSequenceNum();
   int extractPacketLength();
   int endTransmission();
   int acknowledge();
+  int resendAck();
   bool receiving();
   bool receivedPacketIsEot();
   bool packetCorrupt();

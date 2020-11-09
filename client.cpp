@@ -34,22 +34,20 @@ int main(int argc, char *argv[]) {
   }
 
   while (client->sending()) {
-    if (!client->windowFull() && !in_file.eof()) {
+    if (!client->windowFull() && !in_file.eof() && in_file.peek() != EOF) {
       memset((char *) &data, 0, sizeof(data));
 
       in_file.read(data, 30);
 
       int seqNumber = client->createPacket(data, in_file.gcount());
       client->sendPacket(seqNumber);
+    } else {
+      client->recvPacket();
     }
 
     if (client->timerExpired()) {
       client->resendPackets();
       continue;
-    }
-
-    if (client->windowFilled()) {
-      client->recvPacket();
     }
 
     if (client->outstandingPackets() == 0) {
@@ -80,7 +78,7 @@ Client::Client(const char *_hostName, const char *_sendingPort, const char * _re
   hostName = gethostbyname(_hostName);
   sendingPort = atoi(_sendingPort);
   receivingPort = atoi(_receivingPort);
-  slen = sizeof(server);
+  slen = sizeof(sendingServer);
 
   clientseqnum.open("clientseqnum.log", std::ios::out | std::ios::trunc);
   clientack.open("clientack.log", std::ios::out | std::ios::trunc);
@@ -112,12 +110,12 @@ Client::~Client() {
 // so this initiializer function instantiates the requested connection
 // and makes the server available to members of the class.
 int Client::initSendingSocket() {
-  memset((char *) &server, 0, sizeof(server));
+  memset((char *) &sendingServer, 0, sizeof(sendingServer));
   bcopy((char *)hostName->h_addr,
-  (char *)&server.sin_addr.s_addr,
+  (char *)&sendingServer.sin_addr.s_addr,
   hostName->h_length);
 
-  server.sin_port = htons(sendingPort);
+  sendingServer.sin_port = htons(sendingPort);
   sendingSocket = socket(AF_INET, SOCK_DGRAM, 0);
 
   // Here a timeout is set for receiving packets. 40 ms specifically.
@@ -136,12 +134,17 @@ int Client::initReceivingSocket() {
     cout << "Failed creating data socket.\n";
 
   // Initializing UDP Data socket
-  memset((char *) &server, 0, sizeof(server));
-  server.sin_family = AF_INET;
-  server.sin_addr.s_addr = htonl(INADDR_ANY);
-  server.sin_port = htons(receivingPort);
+  memset((char *) &receivingServer, 0, sizeof(receivingServer));
+  receivingServer.sin_family = AF_INET;
+  receivingServer.sin_addr.s_addr = htonl(INADDR_ANY);
+  receivingServer.sin_port = htons(receivingPort);
 
-  return bind(receivingSocket, (struct sockaddr *)&server, sizeof(server));
+  struct timeval ackTimeout;
+  ackTimeout.tv_sec = 0;
+  ackTimeout.tv_usec = 40000;
+  setsockopt(receivingSocket, SOL_SOCKET, SO_RCVTIMEO, &ackTimeout, sizeof ackTimeout);
+
+  return bind(receivingSocket, (struct sockaddr *)&receivingServer, sizeof(receivingServer));
 }
 
 // Recieve packet: waits to receive an ack packet from the server.
@@ -154,7 +157,7 @@ int Client::recvPacket() {
   }
 
   ackPacket = new packet(0, 0, 0, (char *) "");
-  if ((recvfrom(receivingSocket, chunk, 64, 0, (struct sockaddr*) &server, &slen)) < 0) {
+  if ((recvfrom(receivingSocket, chunk, 64, 0, (struct sockaddr*) &receivingServer, &slen)) < 0) {
     return -1;
   }
 
@@ -193,8 +196,11 @@ int Client::outstandingPackets() {
 // Resend packets: for loop that sends all packets in current window. Uses the
 // sequence base and next sequence numbers as starting and ending points.
 void Client::resendPackets() {
-  for(int i = sb.value; i < ns.distance(sb); ++i) {
-    sendPacket(i);
+  SequenceCounter resendCounter;
+  resendCounter = sb.value;
+  for(int i = 0; i < ns.distance(sb); ++i) {
+    sendPacket(resendCounter.value);
+    resendCounter++;
   }
 }
 
@@ -212,7 +218,7 @@ void Client::sendPacket(int index) {
   packet * _packet = window[index];
   _packet->serialize(chunk);
 
-  if ((sendto(sendingSocket, chunk, sizeof(chunk), 0, (struct sockaddr*) &server, slen)) == -1) {
+  if ((sendto(sendingSocket, chunk, sizeof(chunk), 0, (struct sockaddr*) &sendingServer, slen)) == -1) {
     std::cout << "Failed sending data to data socket\n";
     exit(1);
   }
@@ -256,7 +262,7 @@ int Client::endTransmission() {
 
   clientseqnum << eotPacket->getSeqNum() << "\n";
 
-  if ((sendto(sendingSocket, chunk, sizeof(chunk), 0, (struct sockaddr*) &server, slen)) == -1) {
+  if ((sendto(sendingSocket, chunk, sizeof(chunk), 0, (struct sockaddr*) &sendingServer, slen)) == -1) {
     std::cout << "Failed sending eot packet to data socket\n";
     return -1;
   }
@@ -351,7 +357,7 @@ void Client::log(packet *_packet) {
   _packet->printContents();
   cout << "SB: " << sb.value << endl;
   cout << "NS: " << ns.value << endl;
-  cout << "Number of outstanding packets: " << ns.distance(sb);
+  cout << "Number of outstanding packets: " << ns.distance(sb) << endl;
 
   if (_packet->getType() == 0) {
     clientack << _packet->getSeqNum() << "\n";

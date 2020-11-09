@@ -40,7 +40,7 @@ private:
   ofstream clientseqnum, clientack;
 
   SequenceCounter ns, sb;
-  struct sockaddr_in server;
+  struct sockaddr_in sendingServer, receivingServer;
   struct hostent *hostName;
   int receivingPort, sendingPort, receivingSocket, sendingSocket;
   socklen_t slen;

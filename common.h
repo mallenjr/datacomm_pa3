@@ -31,6 +31,16 @@ struct SequenceCounter {
       ++cycle;
   }
 
+  void operator--(int) {
+    value = (value - 1) % 8;
+    if (value >= 0) {
+      value = 0;
+      if (cycle > 0) {
+        --cycle;
+      }
+    }
+  }
+
   // Allows the sequence counter to be assigned
   // to a value while also incrementing the cycle
   // if necessary.
