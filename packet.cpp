@@ -1,6 +1,6 @@
 // Authors: Michael Allen Jr | Wesley Carter
 //          mma357           |  wc609
-// Date: Oct 6, 2020
+// Date: Nov 9, 2020
 
 // This is the packet class for the C++ version of PA2 for CSE 4153/6153 
 // Students are to use this packet class WITHOUT any modifications for PA2

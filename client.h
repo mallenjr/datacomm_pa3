@@ -1,6 +1,6 @@
 // Authors: Michael Allen Jr | Wesley Carter
 //          mma357           |  wc609
-// Date: Oct 6, 2020
+// Date: Nov 9, 2020
 
 #ifndef CLIENT_H
 #define CLIENT_H
