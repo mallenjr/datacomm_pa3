@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
-    if (client->outstandingPackets() == 0) {
+    if (client->outstandingPackets() == 0 && in_file.eof() && in_file.peek() == EOF) {
       client->endTransmission();
     }
   }
@@ -360,8 +360,8 @@ void Client::log(packet *_packet) {
   cout << "Number of outstanding packets: " << ns.distance(sb) << endl;
 
   if (_packet->getType() == 0) {
-    clientack << _packet->getSeqNum() << "\n";
+    clientack << _packet->getSeqNum() << std::endl;
   } else {
-    clientseqnum << _packet->getSeqNum() << "\n";
+    clientseqnum << _packet->getSeqNum() << std::endl;
   }
 }

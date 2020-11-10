@@ -42,6 +42,8 @@ int main(int argc, char *argv[]) {
 
     arrival << server->extractPacketSequenceNum() << "\n";
 
+    arrival << std::flush;
+
     if (server->packetCorrupt()) {
       if (server->resendAck() < 0) {
         cout << "Error sending ack packet.\n";
@@ -55,6 +57,8 @@ int main(int argc, char *argv[]) {
       server->extractPacketLength()
     );
 
+    out_file << std::flush;
+
     if (server->receivedPacketIsEot()) {
       if (server->endTransmission() < 0) {
         cout << "Error sending ack packet.\n";
@@ -62,6 +66,7 @@ int main(int argc, char *argv[]) {
       }
     } else {
       if (server->acknowledge() < 0) {
+        cout << "ack" << endl;
         cout << "Error sending ack packet.\n";
         exit(-1);
       }
@@ -169,10 +174,6 @@ int Server::recvPacket() {
 
   dataPacket->deserialize(chunk);
 
-  cout << "\n\n\n";
-  dataPacket->printContents();
-  cout << "\n\n\n" << endl;
-
   return 0;
 }
 
@@ -235,6 +236,7 @@ int Server::acknowledge() {
   ackPacket->serialize(chunk);
 
   if ((sendto(sendingSocket, chunk, 64, 0, (struct sockaddr*) &sendingServer, slen)) < 0) {
+    cout << "here" << endl;
     return -1;
   }
 
@@ -242,8 +244,8 @@ int Server::acknowledge() {
 }
 
 int Server::resendAck() {
-  if (ackPacket == nullptr) {
-    return -1;
+  if (ackPacket == nullptr && ns.value == 0 && ns.cycle == 0) {
+    return 0;
   }
 
   if ((sendto(sendingSocket, chunk, 64, 0, (struct sockaddr*) &sendingServer, slen)) < 0) {
