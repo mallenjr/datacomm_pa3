@@ -10,11 +10,11 @@
 // to make any additional comments :)
 int main(int argc, char *argv[]) {
   if (argc != 5) {
-    cout << "Usage: server <receivingPort> <sendingPort> <filename>" << endl;
+    cout << "Usage: server <hostname> <receivingPort> <sendingPort> <filename>" << endl;
     return -1; 
   }
 
-  Server *server = new Server(argv[1], argv[3], argv[2]);
+  Server *server = new Server(argv[1], argv[2], argv[3]);
   ofstream arrival("arrival.log", std::ios::out | std::ios::trunc);
 
   if (server->initReceivingSocket() == -1) {
